@@ -1,18 +1,20 @@
+ import os
 import gradio as gr
 import joblib
-from google import genai
-from google.genai import types
 import pandas as pd
+from openai import OpenAI  # Reemplazamos genai por OpenAI
 
+# 1. Cargar modelo entrenado de Machine Learning
 
-# 1. Cargar modelo entrenado
-modelo = joblib.load("model.pkl")   # Asegúrate que este archivo existe en tu carpeta
+modelo = joblib.load("./model.pkl") 
 
-# 2. Inicializar cliente Gemini
-client = genai.Client(api_key="AIzaSyCx90r8SfVxj7CCYKyPT1ScjwYjR6a2aTM")   # <-- pon aquí tu API Key
+# 2. Inicializar cliente de NVIDIA (utilizando la interfaz de OpenAI)
+client = OpenAI(
+    base_url="https://integrate.api.nvidia.com/v1",
+    api_key=os.getenv("NVIDIA_API_KEY", "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")
+)
 
-# 3. Función de predicción
-# 3. Función de predicción
+# 3. Función de predicción y generación de reporte
 def predecir_triage(motivo, edad, fc, fr, pas, sat, temp, gcs):
     try:
         # Crear DataFrame con los mismos nombres de columnas del entrenamiento
@@ -27,7 +29,7 @@ def predecir_triage(motivo, edad, fc, fr, pas, sat, temp, gcs):
             "gcs": gcs
         }])
 
-        # Predecir
+        # Predecir con el modelo local (.pkl)
         pred = modelo.predict(X)[0]
 
         # Definir nivel de alerta según ESI
@@ -40,7 +42,7 @@ def predecir_triage(motivo, edad, fc, fr, pas, sat, temp, gcs):
         else:
             alerta = "BAJO"
 
-        # Prompt a Gemini
+        # Prompt estructurado para el LLM de NVIDIA
         prompt = f"""
 Eres un asistente de admisión de urgencias.
 Genera un reporte estructurado con los siguientes apartados:
@@ -63,19 +65,29 @@ Variables del paciente:
 - Nivel de alerta: {alerta}
 """
 
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt
+        # Llamada a la API de NVIDIA
+        completion = client.chat.completions.create(
+            model="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.6,
+            top_p=0.95,
+            max_tokens=4096,  # Ajustado para una respuesta de triage (65k puede ser excesivo para esta app)
+            extra_body={
+                "chat_template_kwargs": {"enable_thinking": True},
+                "reasoning_budget": 1024
+            },
+            stream=False
         )
 
-        return response.text
+        # Retornar el texto generado por el modelo
+        return completion.choices[0].message.content
 
     except Exception as e:
         return f"❌ Error: {str(e)}"
 
 # 4. Interfaz Gradio
 with gr.Blocks() as demo:
-    gr.Markdown("## Triage ESI con TriageUNAB")
+    gr.Markdown("## Triage ESI con TriageUNAB (Powered by NVIDIA)")
     with gr.Row():
         motivo = gr.Textbox(label="Motivo de consulta")
     with gr.Row():
