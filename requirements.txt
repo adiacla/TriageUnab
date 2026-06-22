@@ -1,3 +1,4 @@
 gradio 
 joblib 
 google-genai
+scikit-learn
