@@ -1,4 +1,4 @@
 gradio 
 joblib 
-google-genai
+openai
 scikit-learn
